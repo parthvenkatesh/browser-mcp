@@ -2,7 +2,8 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { pathToFileURL } from "node:url";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import { ConfigError, loadConfig } from "./config/index.js";
 import { createBrowserMcpServer } from "./mcp/server.js";
@@ -60,7 +61,15 @@ function reportStartupFailure(error: unknown): void {
 
 function isMainModule(): boolean {
   const entrypoint = process.argv[1];
-  return entrypoint !== undefined && import.meta.url === pathToFileURL(entrypoint).href;
+  if (entrypoint === undefined) {
+    return false;
+  }
+
+  try {
+    return realpathSync(entrypoint) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
 }
 
 if (isMainModule()) {
