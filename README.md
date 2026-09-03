@@ -16,7 +16,7 @@ To run a tagged release directly from GitHub, use npm's GitHub package
 specifier (replace the owner, repository, and ref):
 
 ```sh
-npx --yes github:<owner>/<repository>#<tag-or-commit>
+npx --yes github:parthvenkatesh/browser-mcp>#<tag-or-commit>
 ```
 
 The package's `prepare` and `prepack` scripts build the TypeScript CLI, so the
@@ -43,7 +43,7 @@ An MCP client configuration can use either source:
   "mcpServers": {
     "browser-exploration": {
       "command": "npx",
-      "args": ["--yes", "github:<owner>/<repository>#<tag-or-commit>"],
+      "args": ["--yes", "github:parthvenkatesh/browser-mcp>#<tag-or-commit>"],
       "env": {
         "BROWSER": "edge"
       }
