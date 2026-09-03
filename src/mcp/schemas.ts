@@ -7,50 +7,31 @@ export const locatorSchema = z.object({
   value: z.string().min(1).max(4_000),
 });
 
-export const leanSchema = z.object({
-  lean: z.boolean().default(true).describe("Return only essential result fields by default."),
-});
-
-export const observeOptionsSchema = leanSchema.extend({
-  observeMode: z.enum(["none", "diff", "full"]).default("none"),
-  limit: z.number().int().positive().max(500).default(25),
-  verbose: z.boolean().default(false),
-});
-
-export const startInputSchema = observeOptionsSchema.extend({
+export const startInputSchema = z.object({
   browser: browserNameSchema.optional().describe("Browser to launch. Overrides BROWSER for this call."),
   useUserProfile: z.boolean().optional().describe("Reuse the installed browser profile. Defaults to true; set false for an isolated profile."),
 });
 
-export const closeInputSchema = observeOptionsSchema.extend({
+export const closeInputSchema = z.object({
   forceExternal: z.boolean().optional().describe(
     "Also close an externally managed CDP browser. Defaults to false and should be used only with explicit user authorization.",
   ),
 });
 
-export const navigateInputSchema = observeOptionsSchema.extend({
+export const navigateInputSchema = z.object({
   url: z.string().url().describe("Absolute http(s) URL to load in the active tab."),
   timeout: z.number().int().positive().max(120_000).optional(),
 });
 
-export const refInputSchema = observeOptionsSchema.extend({
+export const refInputSchema = z.object({
   ref: z.string().min(1).max(64).optional().describe("Element reference returned by browser_observe."),
   locator: locatorSchema.optional().describe("A locator that must resolve to exactly one element."),
 }).refine((value) => Boolean(value.ref || value.locator), {
   message: "Provide either ref or locator.",
 });
 
-export const clickInputSchema = refInputSchema.extend({
-  force: z.boolean().default(false).describe("Use a controlled DOM click fallback for hidden or obscured elements."),
-});
-
 export const fillInputSchema = refInputSchema.extend({
   value: z.string().describe("Replacement value for the input."),
-  commit: z.enum(["none", "blur", "Tab", "Enter"]).default("none"),
-});
-
-export const clearInputSchema = refInputSchema.extend({
-  commit: z.enum(["none", "blur", "Tab", "Enter"]).default("none"),
 });
 
 export const typeInputSchema = refInputSchema.extend({
@@ -76,7 +57,7 @@ export const selectInputSchema = refInputSchema.extend({
   value: z.string().min(1).describe("Native option value or visible option text."),
 });
 
-export const waitInputSchema = observeOptionsSchema.extend({
+export const waitInputSchema = z.object({
   condition: z.enum([
     "network_idle",
     "navigation",
@@ -98,7 +79,7 @@ export const waitInputSchema = observeOptionsSchema.extend({
   }
 });
 
-export const waitForElementInputSchema = observeOptionsSchema.extend({
+export const waitForElementInputSchema = z.object({
   role: z.string().min(1).max(128).optional(),
   name: z.string().min(1).max(1_000).optional(),
   timeout: z.number().int().positive().max(120_000).optional(),
@@ -106,48 +87,34 @@ export const waitForElementInputSchema = observeOptionsSchema.extend({
   message: "At least one of role or name is required.",
 });
 
-export const screenshotInputSchema = observeOptionsSchema.extend({
+export const screenshotInputSchema = z.object({
   fullPage: z.boolean().optional().default(false),
 });
 
-export const newTabInputSchema = observeOptionsSchema.extend({
+export const newTabInputSchema = z.object({
   url: z.string().url().optional(),
 });
 
-export const switchTabInputSchema = observeOptionsSchema.extend({
+export const switchTabInputSchema = z.object({
   tabId: z.string().min(1).max(128),
 });
 
-export const closeTabInputSchema = observeOptionsSchema.extend({
+export const closeTabInputSchema = z.object({
   tabId: z.string().min(1).max(128),
 });
 
-export const switchFrameInputSchema = observeOptionsSchema.extend({
+export const switchFrameInputSchema = z.object({
   frameId: z.string().min(1).max(128),
 });
 
-export const evaluateInputSchema = observeOptionsSchema.extend({
+export const evaluateInputSchema = z.object({
   expression: z.string().min(1).max(20_000),
-});
-
-export const constructLocatorInputSchema = observeOptionsSchema.extend({
-  ref: z.string().min(1).max(64).optional(),
-  details: z.string().min(1).max(2_000).optional(),
-}).refine((value) => Boolean(value.ref || value.details), {
-  message: "Provide either ref or details.",
-});
-
-export const assertInputSchema = observeOptionsSchema.extend({
-  ...refInputSchema.shape,
-  condition: z.enum(["exists", "visible", "enabled", "checked", "selected", "text_contains", "text_equals", "value_equals"]),
-  expected: z.union([z.string(), z.boolean()]).optional(),
 });
 
 export type StartInput = z.infer<typeof startInputSchema>;
 export type NavigateInput = z.infer<typeof navigateInputSchema>;
 export type RefInput = z.infer<typeof refInputSchema>;
 export type FillInput = z.infer<typeof fillInputSchema>;
-export type ClearInput = z.infer<typeof clearInputSchema>;
 export type TypeInput = z.infer<typeof typeInputSchema>;
 export type PressInput = z.infer<typeof pressInputSchema>;
 export type SelectInput = z.infer<typeof selectInputSchema>;

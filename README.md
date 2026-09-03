@@ -34,26 +34,6 @@ use an existing CDP endpoint or opt into an isolated profile.
 
 It does not install Chrome, WebDriver, or any browser-driver executable.
 
-## Tool Naming and Responses
-
-The server provides Selenium-style names without a `browser_` prefix for the
-primary actions: `click`, `fill`, `send_keys`, `press_key`, `clear`, `select`,
-`check`, `uncheck`, `hover`, and `focus`. The existing `browser_*` names remain
-available as compatibility aliases.
-
-Tool inputs support `lean`, which defaults to `true`, and compact action
-responses are returned by default. Use `lean: false` with
-`observeMode: "full"` when a complete page snapshot is required. `limit`
-controls the number of interactables in compact observations, and `verbose`
-includes optional bounds and viewport metadata.
-
-`fill` replaces the current value using keyboard input and supports
-`commit: "none" | "blur" | "Tab" | "Enter"`. `clear` uses the same commit
-options and action results include `readBackValue` for text-capable controls.
-Use `force: true` with `click` only when a hidden or obscured control requires
-the controlled DOM-click fallback; the response identifies this with
-`actionHint: "javascript_click"`.
-
 An MCP client configuration can use either source:
 
 ```json

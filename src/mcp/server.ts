@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { Frame, Page } from "puppeteer-core";
+import type { Page } from "puppeteer-core";
 
 import type { BrowserConfig } from "../config/index.js";
 import { BrowserManager } from "../browser/browser-manager.js";
@@ -20,10 +20,6 @@ import { failure, success } from "./result.js";
 import {
   closeInputSchema,
   closeTabInputSchema,
-  clickInputSchema,
-  assertInputSchema,
-  constructLocatorInputSchema,
-  clearInputSchema,
   evaluateInputSchema,
   fillInputSchema,
   navigateInputSchema,
@@ -32,7 +28,6 @@ import {
   refInputSchema,
   screenshotInputSchema,
   selectInputSchema,
-  observeOptionsSchema,
   startInputSchema,
   switchFrameInputSchema,
   switchTabInputSchema,
@@ -103,7 +98,6 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
     {
       title: "Browser status",
       description: "Return the current browser connection, active tab, URL, and title.",
-      inputSchema: observeOptionsSchema,
     },
     guard(options.logger, "browser_status", async () => success(await browser.status())),
   );
@@ -137,20 +131,20 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
     }),
   );
 
-  registerNavigationTool(server, options.logger, "browser_back", "Navigate back in the active tab.", async ({ lean, observeMode }) => {
+  registerNavigationTool(server, options.logger, "browser_back", "Navigate back in the active tab.", async () => {
     const navigation = await browser.goBack();
     registry.invalidate("History navigation replaced the current page state.");
-    return observationResult({ navigation }, await observeCurrent(browser, observer), "Navigated back.", lean, observeMode);
+    return observationResult({ navigation }, await observeCurrent(browser, observer), "Navigated back.");
   });
-  registerNavigationTool(server, options.logger, "browser_forward", "Navigate forward in the active tab.", async ({ lean, observeMode }) => {
+  registerNavigationTool(server, options.logger, "browser_forward", "Navigate forward in the active tab.", async () => {
     const navigation = await browser.goForward();
     registry.invalidate("History navigation replaced the current page state.");
-    return observationResult({ navigation }, await observeCurrent(browser, observer), "Navigated forward.", lean, observeMode);
+    return observationResult({ navigation }, await observeCurrent(browser, observer), "Navigated forward.");
   });
-  registerNavigationTool(server, options.logger, "browser_reload", "Reload the active tab.", async ({ lean, observeMode }) => {
+  registerNavigationTool(server, options.logger, "browser_reload", "Reload the active tab.", async () => {
     const navigation = await browser.reload();
     registry.invalidate("Reload replaced the current page state.");
-    return observationResult({ navigation }, await observeCurrent(browser, observer), "Reloaded the active tab.", lean, observeMode);
+    return observationResult({ navigation }, await observeCurrent(browser, observer), "Reloaded the active tab.");
   });
 
   server.registerTool(
@@ -159,11 +153,10 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
       title: "Observe page",
       description:
         "Inspect the active page and return visible semantic elements, forms, tables, dialogs, menus, notifications, and fresh opaque element references.",
-      inputSchema: observeOptionsSchema,
     },
-    guard(options.logger, "browser_observe", async ({ lean, observeMode, limit, verbose }) => {
+    guard(options.logger, "browser_observe", async () => {
       const observation = await observeCurrent(browser, observer);
-      return observationResult({}, observation, undefined, lean, observeMode, limit, verbose);
+      return observationResult({}, observation);
     }),
   );
 
@@ -171,10 +164,10 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
     "browser_click",
     {
       title: "Click element",
-      description: "Click an element; force enables a controlled DOM-click fallback for hidden or obscured controls.",
-      inputSchema: clickInputSchema,
+      description: "Click a visible and enabled element returned by browser_observe.",
+      inputSchema: refInputSchema,
     },
-    guard(options.logger, "browser_click", async ({ force, lean, observeMode, limit, verbose, ...target }) => actionResult(await interactions.click(target, force), lean, observeMode, limit, verbose)),
+    guard(options.logger, "browser_click", async (target) => actionResult(await interactions.click(target))),
   );
 
   server.registerTool(
@@ -184,17 +177,7 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
       description: "Replace an input value while dispatching framework-compatible input and change events.",
       inputSchema: fillInputSchema,
     },
-    guard(options.logger, "browser_fill", async ({ value, commit, lean, observeMode, limit, verbose, ...target }) => actionResult(await interactions.fill(target, value, commit), lean, observeMode, limit, verbose)),
-  );
-
-  server.registerTool(
-    "browser_clear",
-    {
-      title: "Clear input",
-      description: "Clear a text-capable element and optionally commit the change.",
-      inputSchema: clearInputSchema,
-    },
-    guard(options.logger, "browser_clear", async ({ commit, lean, observeMode, ...target }) => actionResult(await interactions.clear(target, commit), lean, observeMode)),
+    guard(options.logger, "browser_fill", async ({ value, ...target }) => actionResult(await interactions.fill(target, value))),
   );
 
   server.registerTool(
@@ -204,7 +187,7 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
       description: "Focus an observed text-capable element and type text using browser keyboard events.",
       inputSchema: typeInputSchema,
     },
-    guard(options.logger, "browser_type", async ({ text, lean, observeMode, limit, verbose, ...target }) => actionResult(await interactions.type(target, text), lean, observeMode, limit, verbose)),
+    guard(options.logger, "browser_type", async ({ text, ...target }) => actionResult(await interactions.type(target, text))),
   );
 
   server.registerTool(
@@ -214,7 +197,7 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
       description: "Focus an observed element and press a supported keyboard key.",
       inputSchema: pressInputSchema,
     },
-    guard(options.logger, "browser_press", async ({ key, lean, observeMode, ...target }) => actionResult(await interactions.press(target, key), lean, observeMode)),
+    guard(options.logger, "browser_press", async ({ key, ...target }) => actionResult(await interactions.press(target, key))),
   );
 
   server.registerTool(
@@ -224,7 +207,7 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
       description: "Select a native option by value or visible text, or use accessible keyboard selection for a custom combobox.",
       inputSchema: selectInputSchema,
     },
-    guard(options.logger, "browser_select", async ({ value, lean, observeMode, ...target }) => actionResult(await interactions.select(target, value), lean, observeMode)),
+    guard(options.logger, "browser_select", async ({ value, ...target }) => actionResult(await interactions.select(target, value))),
   );
 
   server.registerTool(
@@ -234,7 +217,7 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
       description: "Check a checkbox, radio control, or switch if it is not already checked.",
       inputSchema: refInputSchema,
     },
-    guard(options.logger, "browser_check", async ({ lean, observeMode, ...target }) => actionResult(await interactions.setChecked(target, true), lean, observeMode)),
+    guard(options.logger, "browser_check", async (target) => actionResult(await interactions.setChecked(target, true))),
   );
 
   server.registerTool(
@@ -244,7 +227,7 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
       description: "Uncheck a checkbox, radio control, or switch if it is currently checked.",
       inputSchema: refInputSchema,
     },
-    guard(options.logger, "browser_uncheck", async ({ lean, observeMode, ...target }) => actionResult(await interactions.setChecked(target, false), lean, observeMode)),
+    guard(options.logger, "browser_uncheck", async (target) => actionResult(await interactions.setChecked(target, false))),
   );
 
   server.registerTool(
@@ -254,7 +237,7 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
       description: "Hover over an observed element and return the resulting semantic state.",
       inputSchema: refInputSchema,
     },
-    guard(options.logger, "browser_hover", async ({ lean, observeMode, ...target }) => actionResult(await interactions.hover(target), lean, observeMode)),
+    guard(options.logger, "browser_hover", async (target) => actionResult(await interactions.hover(target))),
   );
 
   server.registerTool(
@@ -264,7 +247,7 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
       description: "Focus an observed element and return the resulting semantic state.",
       inputSchema: refInputSchema,
     },
-    guard(options.logger, "browser_focus", async ({ lean, observeMode, ...target }) => actionResult(await interactions.focus(target), lean, observeMode)),
+    guard(options.logger, "browser_focus", async (target) => actionResult(await interactions.focus(target))),
   );
 
   server.registerTool(
@@ -280,7 +263,7 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
         timeout: request.timeout ?? defaultTimeout,
       });
       const observation = await observeCurrent(browser, observer);
-      return observationResult({ wait: result }, observation, `Wait condition ${result.condition} met.`, request.lean, request.observeMode);
+      return observationResult({ wait: result }, observation, `Wait condition ${result.condition} met.`);
     }),
   );
 
@@ -291,7 +274,7 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
       description: "Wait until an element matching a role and/or accessible name appears, then return a fresh observation.",
       inputSchema: waitForElementInputSchema,
     },
-    guard(options.logger, "browser_wait_for_element", async ({ role, name, timeout, lean, observeMode }) => {
+    guard(options.logger, "browser_wait_for_element", async ({ role, name, timeout }) => {
       const page = await browser.requireActiveFrame();
       await waitForSemanticElement(page, { role, name }, timeout ?? defaultTimeout);
       const observation = await observeCurrent(browser, observer);
@@ -302,7 +285,7 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
           "The DOM condition was met but no safely observable matching element was found. Call browser_observe for the current state.",
         );
       }
-      return observationResult({ element }, observation, `Found [${element.ref}] ${element.role}.`, lean, observeMode);
+      return observationResult({ element }, observation, `Found [${element.ref}] ${element.role}.`);
     }),
   );
 
@@ -330,7 +313,6 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
     {
       title: "List tabs",
       description: "Return all open tabs with opaque tab IDs, URLs, titles, and active status.",
-      inputSchema: observeOptionsSchema,
     },
     guard(options.logger, "browser_list_tabs", async () => success({ tabs: await browser.listTabs() })),
   );
@@ -383,7 +365,6 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
     {
       title: "List frames",
       description: "List the active tab's main frame and attached child frames with opaque frame IDs.",
-      inputSchema: observeOptionsSchema,
     },
     guard(options.logger, "browser_list_frames", async () => success({ frames: await browser.listFrames() })),
   );
@@ -422,180 +403,6 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
     }),
   );
 
-  server.registerTool(
-    "get_notifications",
-    {
-      title: "Get notifications",
-      description: "Return the current page's visible semantic notifications in a compact form.",
-      inputSchema: observeOptionsSchema,
-    },
-    guard(options.logger, "get_notifications", async () => {
-      const observation = await observeCurrent(browser, observer);
-      return success({ notifications: observation.notifications });
-    }),
-  );
-
-  server.registerTool(
-    "construct_locator",
-    {
-      title: "Construct locator",
-      description: "Return ranked locator candidates for an observed element or descriptive details.",
-      inputSchema: constructLocatorInputSchema,
-    },
-    guard(options.logger, "construct_locator", async ({ ref, details }) => {
-      if (!ref) {
-        return success({ candidates: [], message: `No observed ref was supplied for details=${JSON.stringify(details)}. Call observe first.` });
-      }
-      const entry = registry.resolve(ref);
-      const frame = await browser.requireActiveFrame();
-      const matchCount = await countLocatorMatches(frame, entry.locator);
-      return success({ candidates: [{ strategy: entry.locator.strategy, value: entry.locator.value, matchCount, quality: "observed-element" }] });
-    }),
-  );
-
-  server.registerTool(
-    "assert",
-    {
-      title: "Assert element state",
-      description: "Assert a compact state condition against an element ref or locator.",
-      inputSchema: assertInputSchema,
-    },
-    guard(options.logger, "assert", async ({ condition, expected, ...target }) => {
-      const frame = await browser.requireActiveFrame();
-      const handle = target.ref
-        ? await registry.resolveHandle(frame, target.ref)
-        : await registry.resolveLocator(frame, target.locator!);
-      try {
-        const actual = await handle.evaluate((element) => ({
-          visible: (() => { const rect = (element as HTMLElement).getBoundingClientRect(); return rect.width > 0 && rect.height > 0; })(),
-          enabled: !(element as HTMLElement).matches(":disabled") && element.getAttribute("aria-disabled") !== "true",
-          checked: (element as HTMLInputElement).checked ?? element.getAttribute("aria-checked") === "true",
-          selected: (element as HTMLOptionElement).selected ?? element.getAttribute("aria-selected") === "true",
-          text: element.textContent?.trim() ?? "",
-          value: "value" in element ? String((element as HTMLInputElement).value) : "",
-        }));
-        const actualValue = condition === "text_contains" || condition === "text_equals" ? actual.text : condition === "value_equals" ? actual.value : actual[condition as "visible" | "enabled" | "checked" | "selected"];
-        const passed = condition === "exists" ? true : condition === "text_contains" ? actual.text.includes(String(expected ?? "")) : condition === "text_equals" ? actual.text === String(expected ?? "") : condition === "value_equals" ? actual.value === String(expected ?? "") : actualValue === expected;
-        return success({ passed, condition, expected, actual: actualValue });
-      } finally {
-        await handle.dispose();
-      }
-    }),
-  );
-
-  server.registerTool(
-    "send_keys",
-    {
-      title: "Send keys",
-      description: "Selenium-style alias for browser_type: focus an element and send text using keyboard events.",
-      inputSchema: typeInputSchema,
-    },
-    guard(options.logger, "send_keys", async ({ text, lean, observeMode, ...target }) => actionResult(await interactions.type(target, text), lean, observeMode)),
-  );
-
-  server.registerTool(
-    "press_key",
-    {
-      title: "Press key",
-      description: "Selenium-style alias for browser_press.",
-      inputSchema: pressInputSchema,
-    },
-    guard(options.logger, "press_key", async ({ key, lean, observeMode, ...target }) => actionResult(await interactions.press(target, key), lean, observeMode)),
-  );
-
-  server.registerTool(
-    "clear",
-    {
-      title: "Clear input",
-      description: "Selenium-style alias for browser_clear.",
-      inputSchema: clearInputSchema,
-    },
-    guard(options.logger, "clear", async ({ commit, lean, observeMode, ...target }) => actionResult(await interactions.clear(target, commit), lean, observeMode)),
-  );
-
-  server.registerTool(
-    "click",
-    {
-      title: "Click element",
-      description: "Selenium-style alias for browser_click.",
-      inputSchema: clickInputSchema,
-    },
-    guard(options.logger, "click", async ({ force, lean, observeMode, limit, verbose, ...target }) => actionResult(await interactions.click(target, force), lean, observeMode, limit, verbose)),
-  );
-
-  server.registerTool(
-    "fill",
-    {
-      title: "Fill input",
-      description: "Selenium-compatible replacement-value input operation.",
-      inputSchema: fillInputSchema,
-    },
-    guard(options.logger, "fill", async ({ value, commit, lean, observeMode, limit, verbose, ...target }) => actionResult(await interactions.fill(target, value, commit), lean, observeMode, limit, verbose)),
-  );
-
-  server.registerTool(
-    "select",
-    {
-      title: "Select option",
-      description: "Selenium-style alias for browser_select.",
-      inputSchema: selectInputSchema,
-    },
-    guard(options.logger, "select", async ({ value, lean, observeMode, limit, verbose, ...target }) => actionResult(await interactions.select(target, value), lean, observeMode, limit, verbose)),
-  );
-
-  server.registerTool(
-    "check",
-    {
-      title: "Check control",
-      description: "Selenium-style alias for browser_check.",
-      inputSchema: refInputSchema,
-    },
-    guard(options.logger, "check", async ({ lean, observeMode, limit, verbose, ...target }) => actionResult(await interactions.setChecked(target, true), lean, observeMode, limit, verbose)),
-  );
-
-  server.registerTool(
-    "uncheck",
-    {
-      title: "Uncheck control",
-      description: "Selenium-style alias for browser_uncheck.",
-      inputSchema: refInputSchema,
-    },
-    guard(options.logger, "uncheck", async ({ lean, observeMode, limit, verbose, ...target }) => actionResult(await interactions.setChecked(target, false), lean, observeMode, limit, verbose)),
-  );
-
-  server.registerTool(
-    "hover",
-    {
-      title: "Hover element",
-      description: "Selenium-style alias for browser_hover.",
-      inputSchema: refInputSchema,
-    },
-    guard(options.logger, "hover", async ({ lean, observeMode, limit, verbose, ...target }) => actionResult(await interactions.hover(target), lean, observeMode, limit, verbose)),
-  );
-
-  server.registerTool(
-    "focus",
-    {
-      title: "Focus element",
-      description: "Selenium-style alias for browser_focus.",
-      inputSchema: refInputSchema,
-    },
-    guard(options.logger, "focus", async ({ lean, observeMode, limit, verbose, ...target }) => actionResult(await interactions.focus(target), lean, observeMode, limit, verbose)),
-  );
-
-  server.registerTool(
-    "switch_to_default_content",
-    {
-      title: "Switch to default content",
-      description: "Switch from a child iframe back to the active page's main frame.",
-      inputSchema: observeOptionsSchema,
-    },
-    guard(options.logger, "switch_to_default_content", async () => {
-      registry.invalidate("The active frame changed to the main frame.");
-      return success({ frame: await browser.switchToDefaultContent() });
-    }),
-  );
-
   return server;
 }
 
@@ -604,13 +411,9 @@ function registerNavigationTool(
   logger: Logger,
   name: string,
   description: string,
-  handler: (options: { lean: boolean; observeMode: "none" | "diff" | "full" }) => Promise<CallToolResult>,
+  handler: () => Promise<CallToolResult>,
 ): void {
-  server.registerTool(name, {
-    title: name.replace("browser_", "").replace(/_/g, " "),
-    description,
-    inputSchema: observeOptionsSchema,
-  }, guard(logger, name, handler));
+  server.registerTool(name, { title: name.replace("browser_", "").replace(/_/g, " "), description }, guard(logger, name, handler));
 }
 
 function guard<Args>(
@@ -640,63 +443,19 @@ function observationResult(
   extra: Record<string, unknown>,
   observation: Observation,
   summary?: string,
-  lean = true,
-  observeMode: "none" | "diff" | "full" = "none",
-  limit = 25,
-  verbose = false,
 ) {
   const serializable = toSerializableObservation(observation);
-  if (lean || observeMode !== "full") {
-    return success({
-      ...extra,
-      page: observation.page,
-      state: observation.state,
-      interactables: observation.interactables.slice(0, limit).map((element) => ({
-        ref: element.ref,
-        role: element.role,
-        name: element.name,
-        text: element.text,
-        enabled: element.enabled,
-        checked: element.checked,
-        selected: element.selected,
-        ...(verbose ? { bounds: element.bounds, inViewport: element.inViewport } : {}),
-      })),
-      truncated: observation.interactables.length > limit,
-    }, summary ?? renderObservation(observation));
-  }
   return success(
     { ...extra, observation: serializable },
     summary ? `${summary}\n\n${renderObservation(observation)}` : renderObservation(observation),
   );
 }
 
-function actionResult(
-  result: Awaited<ReturnType<InteractionService["click"]>>,
-  lean = true,
-  observeMode: "none" | "diff" | "full" = "none",
-  limit = 25,
-  verbose = false,
-) {
-  const summary = `${capitalize(result.action)} succeeded for ${result.ref}.${result.stateChanged ? " Page state changed." : ""}`;
-  if (lean || observeMode !== "full") {
-    return success({
-      action: result.action,
-      ref: result.ref,
-      stateChanged: result.stateChanged,
-      url: result.observation.page.url,
-      title: result.observation.page.title,
-      ...(result.readBackValue === undefined ? {} : { readBackValue: result.readBackValue }),
-    }, summary);
-  }
-
+function actionResult(result: Awaited<ReturnType<InteractionService["click"]>>) {
   return observationResult(
     { action: result.action, ref: result.ref, stateChanged: result.stateChanged },
     result.observation,
-    summary,
-    lean,
-    observeMode,
-    limit,
-    verbose,
+    `${capitalize(result.action)} succeeded for ref=${result.ref}.${result.stateChanged ? " Page state changed." : ""}`,
   );
 }
 
@@ -718,18 +477,6 @@ function serializeEvaluationResult(value: unknown): unknown {
   } catch {
     return String(value);
   }
-}
-
-async function countLocatorMatches(
-  frame: Pick<Frame, "$" | "$$">,
-  locator: { strategy: "css" | "xpath"; value: string },
-): Promise<number> {
-  if (locator.strategy === "css") {
-    return (await frame.$$(locator.value)).length;
-  }
-  const handles = await frame.$$(`xpath/${locator.value}`);
-  await Promise.all(handles.map((handle) => handle.dispose()));
-  return handles.length;
 }
 
 interface SemanticCriteria {
