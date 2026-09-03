@@ -6,21 +6,26 @@ use WebDriver and it never downloads a browser.
 
 ## Run
 
-After the package is published to npm, run it without a global install:
+Run the latest release directly from the public GitHub repository without a
+local checkout or global install:
 
 ```sh
-npx --yes browser-exploration-mcp
+npx --yes github:parthvenkatesh/browser-mcp#latest
 ```
 
-To run a tagged release directly from GitHub, use npm's GitHub package
-specifier (replace the owner, repository, and ref):
+The `latest` tag is a mutable release alias maintained by the project. For a
+reproducible installation, pin an immutable version tag:
 
 ```sh
-npx --yes github:parthvenkatesh/browser-mcp>#<tag-or-commit>
+npx --yes github:parthvenkatesh/browser-mcp#v0.1.0
 ```
 
-The package's `prepare` and `prepack` scripts build the TypeScript CLI, so the
-same `bin` entry point works for npm packages and GitHub-based `npx` execution.
+The repository must be public and users need Node.js 20.11 or newer, npm, and
+Git/network access. npm runs the package `prepare` script during installation,
+which builds the TypeScript CLI before it starts. Do not use `--ignore-scripts`.
+
+The server uses an already installed Chromium-based browser through CDP. It
+does not install Chrome, WebDriver, or any browser-driver executable.
 
 An MCP client configuration can use either source:
 
@@ -29,7 +34,7 @@ An MCP client configuration can use either source:
   "mcpServers": {
     "browser-exploration": {
       "command": "npx",
-      "args": ["--yes", "browser-exploration-mcp"],
+      "args": ["--yes", "github:parthvenkatesh/browser-mcp#latest"],
       "env": {
         "BROWSER": "chrome"
       }
@@ -43,7 +48,7 @@ An MCP client configuration can use either source:
   "mcpServers": {
     "browser-exploration": {
       "command": "npx",
-      "args": ["--yes", "github:parthvenkatesh/browser-mcp>#<tag-or-commit>"],
+      "args": ["--yes", "github:parthvenkatesh/browser-mcp#latest"],
       "env": {
         "BROWSER": "edge"
       }
@@ -81,5 +86,6 @@ npm run check
 npm run build
 ```
 
-The current foundation starts a valid stdio MCP transport; browser tools are
-registered by the browser feature modules.
+For a pinned MCP configuration, replace `#latest` with a version tag such as
+`#v0.1.0`. If npm reports a 404, verify the repository is public, the tag
+exists on GitHub, and the GitHub specifier uses `#ref` rather than `>#ref`.
