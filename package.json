@@ -1,9 +1,10 @@
 {
-  "name": "browser-exploration-mcp",
+  "name": "browser-mcp",
   "version": "0.1.0",
   "description": "A semantic MCP server for exploring locally installed Chromium-based browsers over CDP.",
   "type": "module",
   "bin": {
+    "browser-mcp": "./dist/index.js",
     "browser-exploration-mcp": "./dist/index.js"
   },
   "main": "./dist/index.js",

@@ -34,7 +34,10 @@ An MCP client configuration can use either source:
   "mcpServers": {
     "browser-exploration": {
       "command": "npx",
-      "args": ["--yes", "github:parthvenkatesh/browser-mcp#latest"],
+      "args": [
+        "--yes",
+        "github:parthvenkatesh/browser-mcp#latest"
+      ],
       "env": {
         "BROWSER": "chrome"
       }
@@ -48,7 +51,10 @@ An MCP client configuration can use either source:
   "mcpServers": {
     "browser-exploration": {
       "command": "npx",
-      "args": ["--yes", "github:parthvenkatesh/browser-mcp#latest"],
+      "args": [
+        "--yes",
+        "github:parthvenkatesh/browser-mcp#latest"
+      ],
       "env": {
         "BROWSER": "edge"
       }
