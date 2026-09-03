@@ -26,7 +26,10 @@ export interface ActionResult {
   ref: string;
   stateChanged: boolean;
   observation: Observation;
+  readBackValue?: string;
 }
+
+export type InputCommit = "none" | "blur" | "Tab" | "Enter";
 
 export interface ElementTarget {
   ref?: string;
@@ -49,14 +52,19 @@ export class InteractionService {
     this.postActionTimeoutMs = options.postActionTimeoutMs ?? 1_250;
   }
 
-  public async click(target: ElementTarget): Promise<ActionResult> {
-    return this.withElement(target, "click", async (page, handle) => {
-      await scrollIntoView(handle);
-      await handle.click();
+  public async click(target: ElementTarget, force = false): Promise<ActionResult> {
+    const result = await this.withElement(target, "click", async (_page, handle) => {
+      if (force) {
+        await handle.evaluate((element) => (element as HTMLElement).click());
+      } else {
+        await scrollIntoView(handle);
+        await handle.click();
+      }
     });
+    return { ...result, ...(force ? { forced: true, actionHint: "javascript_click" as const } : {}) };
   }
 
-  public async fill(target: ElementTarget, value: string): Promise<ActionResult> {
+  public async fill(target: ElementTarget, value: string, commit: InputCommit = "none"): Promise<ActionResult> {
     return this.withElement(target, "fill", async (page, handle, entry) => {
       await assertTextEntry(entry, handle, targetLabel(target));
       await scrollIntoView(handle);
@@ -67,42 +75,24 @@ export class InteractionService {
         tagName: element.tagName.toLowerCase(),
       }));
 
-      if (kind.contentEditable) {
-        await page.keyboard.down("Control");
-        await page.keyboard.press("A");
-        await page.keyboard.up("Control");
-        await page.keyboard.type(value);
-        return;
-      }
-
       if (kind.tagName !== "input" && kind.tagName !== "textarea") {
+        if (!kind.contentEditable) {
         throw new BrowserMcpError(
           "ELEMENT_NOT_FILLABLE",
           `Unable to fill ${targetLabel(target)}. The element is not a text input.`,
         );
+        }
       }
 
-      await handle.evaluate((element, nextValue) => {
-        const input = element as HTMLInputElement | HTMLTextAreaElement;
-        const prototype = input instanceof HTMLTextAreaElement
-          ? HTMLTextAreaElement.prototype
-          : HTMLInputElement.prototype;
-        const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
-        if (setter) {
-          setter.call(input, nextValue);
-        } else {
-          input.value = nextValue;
-        }
-
-        input.dispatchEvent(new InputEvent("input", {
-          bubbles: true,
-          composed: true,
-          inputType: "insertText",
-          data: nextValue,
-        }));
-        input.dispatchEvent(new Event("change", { bubbles: true }));
-      }, value);
+      await selectAll(page);
+      await page.keyboard.type(value);
+      await commitInput(page, commit);
+      return readBackValue(handle);
     });
+  }
+
+  public async clear(target: ElementTarget, commit: InputCommit = "none"): Promise<ActionResult> {
+    return this.fill(target, "", commit).then((result) => ({ ...result, action: "clear" }));
   }
 
   public async type(target: ElementTarget, text: string): Promise<ActionResult> {
@@ -213,7 +203,7 @@ export class InteractionService {
   private async withElement(
     target: ElementTarget,
     action: string,
-    execute: (page: Page, handle: ElementHandle<Element>, entry: RegisteredElement | undefined) => Promise<void>,
+    execute: (page: Page, handle: ElementHandle<Element>, entry: RegisteredElement | undefined) => Promise<string | undefined | void>,
   ): Promise<ActionResult> {
     const page = await this.pages.requireActivePage();
     const frame = await this.pages.requireActiveFrame();
@@ -226,15 +216,46 @@ export class InteractionService {
 
     try {
       await assertInteractable(handle, ref);
-      await execute(page, handle, entry);
+      const readBackValue = await execute(page, handle, entry);
+      await safelyDispose(handle);
+
+      const stateChanged = await waitForMeaningfulChange(frame, before, this.postActionTimeoutMs);
+      const observation = await this.observer.observe(frame);
+      return {
+        action,
+        ref,
+        stateChanged,
+        observation,
+        ...(typeof readBackValue === "string" ? { readBackValue } : {}),
+      };
     } finally {
       await safelyDispose(handle);
     }
-
-    const stateChanged = await waitForMeaningfulChange(frame, before, this.postActionTimeoutMs);
-    const observation = await this.observer.observe(frame);
-    return { action, ref, stateChanged, observation };
   }
+}
+
+async function commitInput(page: Page, commit: InputCommit): Promise<void> {
+  if (commit === "Tab" || commit === "Enter") {
+    await page.keyboard.press(commit);
+  } else if (commit === "blur") {
+    await page.keyboard.press("Tab");
+  }
+}
+
+async function selectAll(page: Page): Promise<void> {
+  const modifier = process.platform === "darwin" ? "Meta" : "Control";
+  await page.keyboard.down(modifier);
+  await page.keyboard.press("A");
+  await page.keyboard.up(modifier);
+}
+
+async function readBackValue(handle: ElementHandle<Element>): Promise<string> {
+  return handle.evaluate((element) => {
+    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
+      return element.value;
+    }
+    return (element as HTMLElement).textContent?.trim() ?? "";
+  });
 }
 
 async function assertInteractable(handle: ElementHandle<Element>, ref: string): Promise<void> {

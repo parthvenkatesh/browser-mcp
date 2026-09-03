@@ -304,6 +304,18 @@ export class BrowserManager {
     return this.frameInfo(frame);
   }
 
+  async switchToDefaultContent(): Promise<BrowserFrame> {
+    const page = await this.requireActivePage();
+    this.refreshFrameContext(page);
+    const mainFrame = page.mainFrame();
+    const mainFrameId = this.frameIds.get(mainFrame);
+    if (!mainFrameId) {
+      throw new BrowserMcpError("UNKNOWN_FRAME", "The main frame is no longer available. Call list_frames again.");
+    }
+    this.activeFrameId = mainFrameId;
+    return this.frameInfo(mainFrame);
+  }
+
   async activeFrameInfo(): Promise<BrowserFrame> {
     const frame = await this.requireActiveFrame();
     return this.frameInfo(frame);
