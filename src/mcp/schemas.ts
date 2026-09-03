@@ -2,6 +2,11 @@ import { z } from "zod";
 
 export const browserNameSchema = z.enum(["chrome", "chromium", "edge"]);
 
+export const locatorSchema = z.object({
+  strategy: z.enum(["css", "xpath"]),
+  value: z.string().min(1).max(4_000),
+});
+
 export const startInputSchema = z.object({
   browser: browserNameSchema.optional().describe("Browser to launch. Overrides BROWSER for this call."),
 });
@@ -18,7 +23,10 @@ export const navigateInputSchema = z.object({
 });
 
 export const refInputSchema = z.object({
-  ref: z.string().min(1).max(64).describe("Element reference returned by browser_observe."),
+  ref: z.string().min(1).max(64).optional().describe("Element reference returned by browser_observe."),
+  locator: locatorSchema.optional().describe("A locator that must resolve to exactly one element."),
+}).refine((value) => Boolean(value.ref || value.locator), {
+  message: "Provide either ref or locator.",
 });
 
 export const fillInputSchema = refInputSchema.extend({
@@ -58,11 +66,12 @@ export const waitInputSchema = z.object({
     "text_hidden",
   ]),
   ref: z.string().min(1).max(64).optional(),
+  locator: locatorSchema.optional(),
   text: z.string().min(1).max(4_000).optional(),
   timeout: z.number().int().positive().max(120_000).optional(),
 }).superRefine((value, context) => {
-  if (["element_visible", "element_enabled"].includes(value.condition) && !value.ref) {
-    context.addIssue({ code: z.ZodIssueCode.custom, message: "ref is required for this condition", path: ["ref"] });
+  if (["element_visible", "element_enabled"].includes(value.condition) && !value.ref && !value.locator) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "ref or locator is required for this condition", path: ["ref"] });
   }
   if (["text_visible", "text_hidden"].includes(value.condition) && !value.text) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: "text is required for this condition", path: ["text"] });
@@ -93,6 +102,10 @@ export const closeTabInputSchema = z.object({
   tabId: z.string().min(1).max(128),
 });
 
+export const switchFrameInputSchema = z.object({
+  frameId: z.string().min(1).max(128),
+});
+
 export const evaluateInputSchema = z.object({
   expression: z.string().min(1).max(20_000),
 });
@@ -110,4 +123,5 @@ export type ScreenshotInput = z.infer<typeof screenshotInputSchema>;
 export type NewTabInput = z.infer<typeof newTabInputSchema>;
 export type SwitchTabInput = z.infer<typeof switchTabInputSchema>;
 export type CloseTabInput = z.infer<typeof closeTabInputSchema>;
+export type SwitchFrameInput = z.infer<typeof switchFrameInputSchema>;
 export type EvaluateInput = z.infer<typeof evaluateInputSchema>;

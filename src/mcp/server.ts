@@ -29,6 +29,7 @@ import {
   screenshotInputSchema,
   selectInputSchema,
   startInputSchema,
+  switchFrameInputSchema,
   switchTabInputSchema,
   typeInputSchema,
   waitForElementInputSchema,
@@ -52,8 +53,14 @@ export interface BrowserMcpServerOptions {
  */
 export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpServer {
   const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
-  const browser = options.browserManager ?? new BrowserManager(options.config, options.logger);
   const registry = new ElementRegistry();
+  const browser = options.browserManager ?? new BrowserManager(
+    {
+      ...options.config,
+      onFrameContextChanged: (reason) => registry.invalidate(reason),
+    },
+    options.logger,
+  );
   const observer = new Observer({ registry });
   const interactions = new InteractionService(browser, observer, registry, {
     postActionTimeoutMs: Math.min(options.config.defaultTimeoutMs, 1_500),
@@ -160,7 +167,7 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
       description: "Click a visible and enabled element returned by browser_observe.",
       inputSchema: refInputSchema,
     },
-    guard(options.logger, "browser_click", async ({ ref }) => actionResult(await interactions.click(ref))),
+    guard(options.logger, "browser_click", async (target) => actionResult(await interactions.click(target))),
   );
 
   server.registerTool(
@@ -170,7 +177,7 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
       description: "Replace an input value while dispatching framework-compatible input and change events.",
       inputSchema: fillInputSchema,
     },
-    guard(options.logger, "browser_fill", async ({ ref, value }) => actionResult(await interactions.fill(ref, value))),
+    guard(options.logger, "browser_fill", async ({ value, ...target }) => actionResult(await interactions.fill(target, value))),
   );
 
   server.registerTool(
@@ -180,7 +187,7 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
       description: "Focus an observed text-capable element and type text using browser keyboard events.",
       inputSchema: typeInputSchema,
     },
-    guard(options.logger, "browser_type", async ({ ref, text }) => actionResult(await interactions.type(ref, text))),
+    guard(options.logger, "browser_type", async ({ text, ...target }) => actionResult(await interactions.type(target, text))),
   );
 
   server.registerTool(
@@ -190,7 +197,7 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
       description: "Focus an observed element and press a supported keyboard key.",
       inputSchema: pressInputSchema,
     },
-    guard(options.logger, "browser_press", async ({ ref, key }) => actionResult(await interactions.press(ref, key))),
+    guard(options.logger, "browser_press", async ({ key, ...target }) => actionResult(await interactions.press(target, key))),
   );
 
   server.registerTool(
@@ -200,7 +207,7 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
       description: "Select a native option by value or visible text, or use accessible keyboard selection for a custom combobox.",
       inputSchema: selectInputSchema,
     },
-    guard(options.logger, "browser_select", async ({ ref, value }) => actionResult(await interactions.select(ref, value))),
+    guard(options.logger, "browser_select", async ({ value, ...target }) => actionResult(await interactions.select(target, value))),
   );
 
   server.registerTool(
@@ -210,7 +217,7 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
       description: "Check a checkbox, radio control, or switch if it is not already checked.",
       inputSchema: refInputSchema,
     },
-    guard(options.logger, "browser_check", async ({ ref }) => actionResult(await interactions.setChecked(ref, true))),
+    guard(options.logger, "browser_check", async (target) => actionResult(await interactions.setChecked(target, true))),
   );
 
   server.registerTool(
@@ -220,7 +227,7 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
       description: "Uncheck a checkbox, radio control, or switch if it is currently checked.",
       inputSchema: refInputSchema,
     },
-    guard(options.logger, "browser_uncheck", async ({ ref }) => actionResult(await interactions.setChecked(ref, false))),
+    guard(options.logger, "browser_uncheck", async (target) => actionResult(await interactions.setChecked(target, false))),
   );
 
   server.registerTool(
@@ -230,7 +237,7 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
       description: "Hover over an observed element and return the resulting semantic state.",
       inputSchema: refInputSchema,
     },
-    guard(options.logger, "browser_hover", async ({ ref }) => actionResult(await interactions.hover(ref))),
+    guard(options.logger, "browser_hover", async (target) => actionResult(await interactions.hover(target))),
   );
 
   server.registerTool(
@@ -240,7 +247,7 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
       description: "Focus an observed element and return the resulting semantic state.",
       inputSchema: refInputSchema,
     },
-    guard(options.logger, "browser_focus", async ({ ref }) => actionResult(await interactions.focus(ref))),
+    guard(options.logger, "browser_focus", async (target) => actionResult(await interactions.focus(target))),
   );
 
   server.registerTool(
@@ -251,7 +258,7 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
       inputSchema: waitInputSchema,
     },
     guard(options.logger, "browser_wait", async (request) => {
-      const result = await waits.wait(await browser.requireActivePage(), {
+      const result = await waits.wait(await browser.requireActivePage(), await browser.requireActiveFrame(), {
         ...request,
         timeout: request.timeout ?? defaultTimeout,
       });
@@ -268,7 +275,7 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
       inputSchema: waitForElementInputSchema,
     },
     guard(options.logger, "browser_wait_for_element", async ({ role, name, timeout }) => {
-      const page = await browser.requireActivePage();
+      const page = await browser.requireActiveFrame();
       await waitForSemanticElement(page, { role, name }, timeout ?? defaultTimeout);
       const observation = await observeCurrent(browser, observer);
       const element = observation.interactables.find((candidate) => matchesSemanticElement(candidate, { role, name }));
@@ -354,6 +361,28 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
   );
 
   server.registerTool(
+    "browser_list_frames",
+    {
+      title: "List frames",
+      description: "List the active tab's main frame and attached child frames with opaque frame IDs.",
+    },
+    guard(options.logger, "browser_list_frames", async () => success({ frames: await browser.listFrames() })),
+  );
+
+  server.registerTool(
+    "browser_switch_frame",
+    {
+      title: "Switch frame",
+      description: "Select an attached frame by ID. Call browser_list_frames to return to the main frame or choose another frame.",
+      inputSchema: switchFrameInputSchema,
+    },
+    guard(options.logger, "browser_switch_frame", async ({ frameId }) => {
+      registry.invalidate("The active frame changed.");
+      return success({ frame: await browser.switchFrame(frameId) });
+    }),
+  );
+
+  server.registerTool(
     "browser_evaluate",
     {
       title: "Evaluate page expression",
@@ -407,7 +436,7 @@ function guard<Args>(
 }
 
 async function observeCurrent(browser: BrowserManager, observer: Observer): Promise<Observation> {
-  return observer.observe(await browser.requireActivePage());
+  return observer.observe(await browser.requireActiveFrame());
 }
 
 function observationResult(
@@ -456,7 +485,7 @@ interface SemanticCriteria {
 }
 
 async function waitForSemanticElement(
-  page: Page,
+  page: Pick<Page, "waitForFunction">,
   criteria: SemanticCriteria,
   timeout: number,
 ): Promise<void> {

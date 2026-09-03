@@ -50,7 +50,7 @@ export interface Bounds {
  * not included in the serializable element model exposed through MCP.
  */
 export interface ElementLocator {
-  strategy: "css";
+  strategy: "css" | "xpath";
   value: string;
   /** A less-specific locator used only when the primary path no longer works. */
   fallback?: string;

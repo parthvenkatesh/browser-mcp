@@ -1,4 +1,5 @@
-import type { ElementHandle, Page } from "puppeteer-core";
+import type { ElementHandle } from "puppeteer-core";
+import type { DocumentContext } from "./DomAnalyzer.js";
 
 import {
   analyzePage,
@@ -53,7 +54,7 @@ export class Observer {
     };
   }
 
-  async observe(page: Page): Promise<Observation> {
+  async observe(page: DocumentContext): Promise<Observation> {
     const analysis = await analyzePage(page, this.options);
     const transition = this.stateTracker.track({
       url: analysis.page.url,
@@ -272,7 +273,7 @@ function selectorsForAnalysis(analysis: RawPageAnalysis): string[] {
 }
 
 async function lookupBackendNodeIds(
-  page: Page,
+  page: DocumentContext,
   selectors: string[],
   maxSelectors: number,
 ): Promise<Map<string, number>> {
@@ -300,7 +301,7 @@ async function lookupBackendNodeIds(
 }
 
 async function backendNodeIdFor(
-  page: Page,
+  page: DocumentContext,
   selector: string,
 ): Promise<number | undefined> {
   let handle: ElementHandle<Element> | null = null;

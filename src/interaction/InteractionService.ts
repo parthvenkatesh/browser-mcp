@@ -1,8 +1,9 @@
-import type { ElementHandle, Page } from "puppeteer-core";
+import type { ElementHandle, Frame, Page } from "puppeteer-core";
 
 import { inspectElement } from "../exploration/ElementRegistry.js";
 import type { ElementRegistry } from "../exploration/ElementRegistry.js";
 import type {
+  ElementLocator,
   Observation,
   RegisteredElement,
   SemanticRole,
@@ -12,6 +13,7 @@ import { BrowserMcpError } from "../mcp/errors.js";
 
 export interface ActivePageProvider {
   requireActivePage(): Promise<Page>;
+  requireActiveFrame(): Promise<Frame>;
 }
 
 export interface InteractionServiceOptions {
@@ -24,6 +26,11 @@ export interface ActionResult {
   ref: string;
   stateChanged: boolean;
   observation: Observation;
+}
+
+export interface ElementTarget {
+  ref?: string;
+  locator?: Pick<ElementLocator, "strategy" | "value">;
 }
 
 /**
@@ -42,16 +49,16 @@ export class InteractionService {
     this.postActionTimeoutMs = options.postActionTimeoutMs ?? 1_250;
   }
 
-  public async click(ref: string): Promise<ActionResult> {
-    return this.withElement(ref, "click", async (page, handle) => {
+  public async click(target: ElementTarget): Promise<ActionResult> {
+    return this.withElement(target, "click", async (page, handle) => {
       await scrollIntoView(handle);
       await handle.click();
     });
   }
 
-  public async fill(ref: string, value: string): Promise<ActionResult> {
-    return this.withElement(ref, "fill", async (page, handle, entry) => {
-      assertTextEntry(entry, ref);
+  public async fill(target: ElementTarget, value: string): Promise<ActionResult> {
+    return this.withElement(target, "fill", async (page, handle, entry) => {
+      await assertTextEntry(entry, handle, targetLabel(target));
       await scrollIntoView(handle);
       await handle.focus();
 
@@ -71,7 +78,7 @@ export class InteractionService {
       if (kind.tagName !== "input" && kind.tagName !== "textarea") {
         throw new BrowserMcpError(
           "ELEMENT_NOT_FILLABLE",
-          `Unable to fill ref=${ref}. The element is not a text input.`,
+          `Unable to fill ${targetLabel(target)}. The element is not a text input.`,
         );
       }
 
@@ -98,26 +105,28 @@ export class InteractionService {
     });
   }
 
-  public async type(ref: string, text: string): Promise<ActionResult> {
-    return this.withElement(ref, "type", async (_page, handle, entry) => {
-      assertTextEntry(entry, ref);
+  public async type(target: ElementTarget, text: string): Promise<ActionResult> {
+    return this.withElement(target, "type", async (_page, handle, entry) => {
+      await assertTextEntry(entry, handle, targetLabel(target));
       await scrollIntoView(handle);
       await handle.focus();
       await handle.type(text);
     });
   }
 
-  public async press(ref: string, key: string): Promise<ActionResult> {
-    return this.withElement(ref, "press", async (page, handle) => {
+  public async press(target: ElementTarget, key: string): Promise<ActionResult> {
+    return this.withElement(target, "press", async (page, handle) => {
       await scrollIntoView(handle);
       await handle.focus();
       await page.keyboard.press(key as Parameters<Page["keyboard"]["press"]>[0]);
     });
   }
 
-  public async select(ref: string, value: string): Promise<ActionResult> {
-    return this.withElement(ref, "select", async (page, handle, entry) => {
-      if (entry.role !== "combobox" && entry.role !== "listbox") {
+  public async select(target: ElementTarget, value: string): Promise<ActionResult> {
+    return this.withElement(target, "select", async (page, handle, entry) => {
+      const ref = targetLabel(target);
+      const role = await interactionRole(handle, entry);
+      if (role !== "combobox" && role !== "listbox") {
         throw new BrowserMcpError(
           "ELEMENT_NOT_SELECTABLE",
           `Unable to select ref=${ref}. The element is not a select or combobox.`,
@@ -166,9 +175,11 @@ export class InteractionService {
     });
   }
 
-  public async setChecked(ref: string, checked: boolean): Promise<ActionResult> {
-    return this.withElement(ref, checked ? "check" : "uncheck", async (_page, handle, entry) => {
-      if (!isCheckable(entry.role)) {
+  public async setChecked(target: ElementTarget, checked: boolean): Promise<ActionResult> {
+    return this.withElement(target, checked ? "check" : "uncheck", async (_page, handle, entry) => {
+      const ref = targetLabel(target);
+      const role = await interactionRole(handle, entry);
+      if (!isCheckable(role)) {
         throw new BrowserMcpError(
           "ELEMENT_NOT_CHECKABLE",
           `Unable to ${checked ? "check" : "uncheck"} ref=${ref}. The element is not a checkbox, radio, or switch.`,
@@ -185,29 +196,33 @@ export class InteractionService {
     });
   }
 
-  public async hover(ref: string): Promise<ActionResult> {
-    return this.withElement(ref, "hover", async (_page, handle) => {
+  public async hover(target: ElementTarget): Promise<ActionResult> {
+    return this.withElement(target, "hover", async (_page, handle) => {
       await scrollIntoView(handle);
       await handle.hover();
     });
   }
 
-  public async focus(ref: string): Promise<ActionResult> {
-    return this.withElement(ref, "focus", async (_page, handle) => {
+  public async focus(target: ElementTarget): Promise<ActionResult> {
+    return this.withElement(target, "focus", async (_page, handle) => {
       await scrollIntoView(handle);
       await handle.focus();
     });
   }
 
   private async withElement(
-    ref: string,
+    target: ElementTarget,
     action: string,
-    execute: (page: Page, handle: ElementHandle<Element>, entry: RegisteredElement) => Promise<void>,
+    execute: (page: Page, handle: ElementHandle<Element>, entry: RegisteredElement | undefined) => Promise<void>,
   ): Promise<ActionResult> {
     const page = await this.pages.requireActivePage();
-    const before = await pageFingerprint(page);
-    const entry = this.registry.resolve(ref);
-    const handle = await this.registry.resolveHandle(page, ref);
+    const frame = await this.pages.requireActiveFrame();
+    const before = await pageFingerprint(frame);
+    const ref = targetLabel(target);
+    const entry = target.ref ? this.registry.resolve(target.ref) : undefined;
+    const handle = target.ref
+      ? await this.registry.resolveHandle(frame, target.ref)
+      : await this.registry.resolveLocator(frame, target.locator!);
 
     try {
       await assertInteractable(handle, ref);
@@ -216,8 +231,8 @@ export class InteractionService {
       await safelyDispose(handle);
     }
 
-    const stateChanged = await waitForMeaningfulChange(page, before, this.postActionTimeoutMs);
-    const observation = await this.observer.observe(page);
+    const stateChanged = await waitForMeaningfulChange(frame, before, this.postActionTimeoutMs);
+    const observation = await this.observer.observe(frame);
     return { action, ref, stateChanged, observation };
   }
 }
@@ -244,13 +259,33 @@ async function assertInteractable(handle: ElementHandle<Element>, ref: string): 
   }
 }
 
-function assertTextEntry(entry: RegisteredElement, ref: string): void {
-  if (!isTextRole(entry.role)) {
+async function assertTextEntry(entry: RegisteredElement | undefined, handle: ElementHandle<Element>, ref: string): Promise<void> {
+  const role = await interactionRole(handle, entry);
+  if (!isTextRole(role)) {
     throw new BrowserMcpError(
       "ELEMENT_NOT_FILLABLE",
-      `Unable to type into ref=${ref}. The element is not a text-capable input.`,
+      `Unable to type into ${ref}. The element is not a text-capable input.`,
     );
   }
+}
+
+async function interactionRole(handle: ElementHandle<Element>, entry?: RegisteredElement): Promise<SemanticRole> {
+  return entry?.role ?? await handle.evaluate((element): SemanticRole => {
+    const html = element as HTMLElement;
+    if (html instanceof HTMLTextAreaElement || html.isContentEditable) return "textbox";
+    if (html instanceof HTMLInputElement && html.type === "number") return "spinbutton";
+    if (html instanceof HTMLInputElement) return html.type === "search" ? "searchbox" : "textbox";
+    if (html instanceof HTMLSelectElement) return "combobox";
+    if (html.getAttribute("role") === "listbox") return "listbox";
+    if (html.getAttribute("role") === "checkbox") return "checkbox";
+    if (html.getAttribute("role") === "radio") return "radio";
+    if (html.getAttribute("role") === "switch") return "switch";
+    return "other";
+  });
+}
+
+function targetLabel(target: ElementTarget): string {
+  return target.ref ? `ref=${target.ref}` : `locator=${target.locator?.strategy}:${JSON.stringify(target.locator?.value)}`;
 }
 
 function isTextRole(role: SemanticRole): boolean {
@@ -267,7 +302,7 @@ async function scrollIntoView(handle: ElementHandle<Element>): Promise<void> {
   });
 }
 
-async function pageFingerprint(page: Page): Promise<string> {
+async function pageFingerprint(page: Pick<Frame, "evaluate">): Promise<string> {
   return page.evaluate(() => {
     const dialogs = document.querySelectorAll('[role="dialog"], [role="alertdialog"], dialog[open]').length;
     const menus = document.querySelectorAll('[role="menu"], [role="listbox"]').length;
@@ -278,7 +313,7 @@ async function pageFingerprint(page: Page): Promise<string> {
 }
 
 async function waitForMeaningfulChange(
-  page: Page,
+  page: Pick<Frame, "evaluate" | "waitForFunction">,
   previous: string,
   timeout: number,
 ): Promise<boolean> {

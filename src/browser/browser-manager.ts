@@ -1,7 +1,7 @@
 import { rm } from "node:fs/promises";
 import type { ChildProcess } from "node:child_process";
 
-import type { Browser, Page, ScreenshotOptions } from "puppeteer-core";
+import type { Browser, Frame, Page, ScreenshotOptions } from "puppeteer-core";
 
 import type { Logger } from "../utils/logging.js";
 import { findFreeLocalPort } from "../utils/ports.js";
@@ -24,6 +24,7 @@ import {
   BrowserMismatchError,
   BrowserNotStartedError,
 } from "./errors.js";
+import { BrowserMcpError } from "../mcp/errors.js";
 import {
   createBrowserProfile,
   launchBrowser,
@@ -54,6 +55,7 @@ export interface BrowserManagerOptions {
   readonly extraBrowserArgs?: readonly string[];
   readonly env?: NodeJS.ProcessEnv;
   readonly platform?: NodeJS.Platform;
+  readonly onFrameContextChanged?: (reason: string) => void;
 }
 
 export interface BrowserStartOptions {
@@ -102,6 +104,16 @@ export interface BrowserStatus {
   readonly currentTitle?: string;
 }
 
+export interface BrowserFrame {
+  readonly id: string;
+  readonly parentId?: string;
+  readonly name: string;
+  readonly url: string;
+  readonly depth: number;
+  readonly main: boolean;
+  readonly selected: boolean;
+}
+
 export type BrowserScreenshotOptions = ScreenshotOptions;
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 30_000;
@@ -116,6 +128,11 @@ export class BrowserManager {
   private session?: BrowserSession;
   private startPromise?: Promise<BrowserSession>;
   private closing = false;
+  private readonly frameIds = new WeakMap<Frame, string>();
+  private readonly framesById = new Map<string, Frame>();
+  private readonly observedPages = new WeakSet<Page>();
+  private nextFrameNumber = 1;
+  private activeFrameId?: string;
 
   constructor(
     private readonly options: BrowserManagerOptions = {},
@@ -232,6 +249,7 @@ export class BrowserManager {
   async requireActivePage(): Promise<Page> {
     const session = this.requireSession();
     const page = await session.pageManager.ensureActivePage();
+    this.observeFrameLifecycle(page);
     session.page = page;
     session.activePage = page;
     return page;
@@ -259,7 +277,44 @@ export class BrowserManager {
     const session = this.requireSession();
     const tab = await session.pageManager.switchTab(tabId);
     await this.syncActivePage(session);
+    this.resetFrameContext();
     return tab;
+  }
+
+  async listFrames(): Promise<BrowserFrame[]> {
+    const page = await this.requireActivePage();
+    this.refreshFrameContext(page);
+    return page.frames().map((frame) => this.frameInfo(frame));
+  }
+
+  async switchFrame(frameId: string): Promise<BrowserFrame> {
+    const page = await this.requireActivePage();
+    this.refreshFrameContext(page);
+    const frame = this.framesById.get(frameId);
+    if (!frame || frame.isDetached()) {
+      throw new BrowserMcpError(
+        "UNKNOWN_FRAME",
+        `Unknown or detached frame id=${frameId}. Call browser_list_frames to obtain current frame IDs.`,
+      );
+    }
+    this.activeFrameId = frameId;
+    return this.frameInfo(frame);
+  }
+
+  async activeFrameInfo(): Promise<BrowserFrame> {
+    const frame = await this.requireActiveFrame();
+    return this.frameInfo(frame);
+  }
+
+  async requireActiveFrame(): Promise<Frame> {
+    const page = await this.requireActivePage();
+    this.refreshFrameContext(page);
+    const frame = this.activeFrameId ? this.framesById.get(this.activeFrameId) : undefined;
+    if (!frame || frame.isDetached()) {
+      this.activeFrameId = this.frameIds.get(page.mainFrame());
+      return page.mainFrame();
+    }
+    return frame;
   }
 
   async closeTab(tabId: string): Promise<void> {
@@ -272,6 +327,7 @@ export class BrowserManager {
     const session = this.requireSession();
     const result = await session.pageManager.navigate(url);
     await this.syncActivePage(session);
+    this.resetFrameContext();
     return result;
   }
 
@@ -279,6 +335,7 @@ export class BrowserManager {
     const session = this.requireSession();
     const result = await session.pageManager.goBack();
     await this.syncActivePage(session);
+    this.resetFrameContext();
     return result;
   }
 
@@ -286,6 +343,7 @@ export class BrowserManager {
     const session = this.requireSession();
     const result = await session.pageManager.goForward();
     await this.syncActivePage(session);
+    this.resetFrameContext();
     return result;
   }
 
@@ -293,6 +351,7 @@ export class BrowserManager {
     const session = this.requireSession();
     const result = await session.pageManager.reload();
     await this.syncActivePage(session);
+    this.resetFrameContext();
     return result;
   }
 
@@ -314,8 +373,8 @@ export class BrowserManager {
     if (expression.length > MAX_EVALUATE_SOURCE_LENGTH) {
       throw new Error(`Evaluation source exceeds the ${MAX_EVALUATE_SOURCE_LENGTH}-character limit.`);
     }
-    const page = await this.requireActivePage();
-    return page.evaluate(expression);
+    const frame = await this.requireActiveFrame();
+    return frame.evaluate(expression);
   }
 
   private async startInternal(startOptions: BrowserStartOptions): Promise<BrowserSession> {
@@ -456,8 +515,84 @@ export class BrowserManager {
 
   private async syncActivePage(session: BrowserSession): Promise<void> {
     const page = await session.pageManager.ensureActivePage();
+    this.observeFrameLifecycle(page);
     session.page = page;
     session.activePage = page;
+  }
+
+  private refreshFrameContext(page: Page): void {
+    const currentFrames = new Set(page.frames());
+    for (const [id, frame] of this.framesById) {
+      if (!currentFrames.has(frame) || frame.isDetached()) {
+        this.framesById.delete(id);
+        if (this.activeFrameId === id) {
+          this.activeFrameId = undefined;
+        }
+      }
+    }
+    for (const frame of currentFrames) {
+      const id = this.frameIds.get(frame) ?? `frame-${this.nextFrameNumber++}`;
+      this.frameIds.set(frame, id);
+      this.framesById.set(id, frame);
+    }
+    if (!this.activeFrameId) {
+      const main = page.mainFrame();
+      this.activeFrameId = this.frameIds.get(main);
+    }
+  }
+
+  private resetFrameContext(): void {
+    this.framesById.clear();
+    this.activeFrameId = undefined;
+  }
+
+  private observeFrameLifecycle(page: Page): void {
+    if (this.observedPages.has(page)) {
+      return;
+    }
+    this.observedPages.add(page);
+    page.on("framenavigated", (frame) => {
+      if (frame !== page.mainFrame()) {
+        this.options.onFrameContextChanged?.("A child frame navigated and replaced its document.");
+      }
+    });
+    page.on("framedetached", (frame) => {
+      const frameId = this.frameIds.get(frame);
+      if (frameId) {
+        this.framesById.delete(frameId);
+        if (this.activeFrameId === frameId) {
+          this.activeFrameId = this.frameIds.get(page.mainFrame());
+        }
+        this.options.onFrameContextChanged?.("The selected or observed child frame detached.");
+      }
+    });
+  }
+
+  private frameInfo(frame: Frame): BrowserFrame {
+    const id = this.frameIds.get(frame);
+    if (!id) {
+      throw new BrowserMcpError("UNKNOWN_FRAME", "The frame context changed. Call browser_list_frames again.");
+    }
+    const parent = frame.parentFrame();
+    return {
+      id,
+      ...(parent ? { parentId: this.frameIds.get(parent) } : {}),
+      name: frame.name(),
+      url: frame.url(),
+      depth: parent ? this.frameDepth(frame) : 0,
+      main: frame === frame.page().mainFrame(),
+      selected: id === this.activeFrameId,
+    };
+  }
+
+  private frameDepth(frame: Frame): number {
+    let depth = 0;
+    let parent = frame.parentFrame();
+    while (parent) {
+      depth += 1;
+      parent = parent.parentFrame();
+    }
+    return depth;
   }
 
   private resolveStartupTimeout(): number {

@@ -1,4 +1,6 @@
-import type { Page } from "puppeteer-core";
+import type { Frame, Page } from "puppeteer-core";
+
+export type DocumentContext = Pick<Frame, "$" | "$$" | "evaluate" | "waitForFunction"> | Pick<Page, "$" | "$$" | "evaluate" | "waitForFunction">;
 
 import type {
   Bounds,
@@ -111,7 +113,7 @@ const DEFAULT_OPTIONS: Required<DomAnalyzerOptions> = {
  * back to ARIA, labels, native control semantics, and visible DOM text.
  */
 export async function analyzePage(
-  page: Page,
+  page: DocumentContext,
   options: DomAnalyzerOptions = {},
 ): Promise<RawPageAnalysis> {
   const normalizedOptions = { ...DEFAULT_OPTIONS, ...options };

@@ -1,4 +1,5 @@
-import type { ElementHandle, Page } from "puppeteer-core";
+import type { ElementHandle } from "puppeteer-core";
+import type { DocumentContext } from "./DomAnalyzer.js";
 
 import type {
   ElementFingerprint,
@@ -177,7 +178,7 @@ export class ElementRegistry {
    * equally-shaped replacement node.
    */
   async resolveHandle(
-    page: Page,
+    page: DocumentContext,
     ref: string,
   ): Promise<ElementHandle<Element>> {
     const entry = this.resolve(ref);
@@ -277,8 +278,29 @@ export class ElementRegistry {
   }
 
   /** Alias useful to action services that prefer explicit naming. */
-  getHandle(page: Page, ref: string): Promise<ElementHandle<Element>> {
+  getHandle(page: DocumentContext, ref: string): Promise<ElementHandle<Element>> {
     return this.resolveHandle(page, ref);
+  }
+
+  /** Resolve a caller-supplied locator only when it identifies one element. */
+  async resolveLocator(page: DocumentContext, locator: Pick<ElementLocator, "strategy" | "value">): Promise<ElementHandle<Element>> {
+    const handles = await findAllByLocator(page, locator);
+    if (handles.length === 0) {
+      throw new ElementReferenceError(
+        "UNKNOWN_ELEMENT_REFERENCE",
+        locator.value,
+        `Locator did not match any element: ${locator.strategy}=${JSON.stringify(locator.value)}.`,
+      );
+    }
+    if (handles.length > 1) {
+      await Promise.all(handles.map((handle) => safelyDispose(handle)));
+      throw new ElementReferenceError(
+        "UNKNOWN_ELEMENT_REFERENCE",
+        locator.value,
+        `Locator matched ${handles.length} elements and is ambiguous: ${locator.strategy}=${JSON.stringify(locator.value)}.`,
+      );
+    }
+    return handles[0]!;
   }
 
   private retireActive(reason: string): void {
@@ -357,10 +379,10 @@ function normalizePrefix(value: string): string {
 }
 
 async function findByLocator(
-  page: Page,
+  page: DocumentContext,
   locator: ElementLocator,
 ): Promise<ElementHandle<Element> | null> {
-  const primary = await page.$(locator.value);
+  const primary = (await findAllByLocator(page, locator))[0];
   if (primary) {
     return primary;
   }
@@ -369,7 +391,17 @@ async function findByLocator(
     return null;
   }
 
-  return page.$(locator.fallback);
+  return (await findAllByLocator(page, { strategy: "css", value: locator.fallback }))[0] ?? null;
+}
+
+async function findAllByLocator(
+  page: DocumentContext,
+  locator: Pick<ElementLocator, "strategy" | "value">,
+): Promise<ElementHandle<Element>[]> {
+  if (locator.strategy === "xpath") {
+    return page.$$(`xpath/${locator.value}`);
+  }
+  return page.$$(locator.value);
 }
 
 async function safelyDispose(handle: ElementHandle<Element>): Promise<void> {
