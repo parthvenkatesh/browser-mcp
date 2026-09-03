@@ -7,6 +7,7 @@ import type { Logger } from "../utils/logging.js";
 import { findFreeLocalPort } from "../utils/ports.js";
 import {
   discoverBrowser,
+  defaultUserDataDir,
 } from "../platform/browser-discovery.js";
 import {
   inferBrowserNameFromProduct,
@@ -49,6 +50,7 @@ export interface BrowserManagerOptions {
   readonly cdpEndpoint?: string;
   readonly headless?: boolean;
   readonly userDataDir?: string;
+  readonly useUserProfile?: boolean;
   readonly downloadDir?: string;
   readonly startupTimeoutMs?: number;
   readonly defaultTimeoutMs?: number;
@@ -64,6 +66,7 @@ export interface BrowserStartOptions {
   readonly executablePath?: string;
   readonly cdpEndpoint?: string;
   readonly headless?: boolean;
+  readonly useUserProfile?: boolean;
 }
 
 export interface BrowserCloseOptions {
@@ -441,7 +444,24 @@ export class BrowserManager {
       env: this.options.env,
       platform: this.options.platform,
     });
-    const profile = await createBrowserProfile(this.options.userDataDir, this.options.downloadDir);
+    const useUserProfile = startOptions.useUserProfile ?? this.options.useUserProfile ?? true;
+    const configuredProfile = startOptions.useUserProfile === false && !this.options.userDataDir
+      ? undefined
+      : this.options.userDataDir;
+    const userDataDir = configuredProfile ?? (
+      useUserProfile
+        ? defaultUserDataDir(
+          discovered.browser,
+          this.options.platform,
+          this.options.env,
+        )
+        : undefined
+    );
+    const profile = await createBrowserProfile(
+      userDataDir,
+      this.options.downloadDir,
+      userDataDir === undefined,
+    );
     let launched: LaunchedBrowser | undefined;
     let browser: Browser | undefined;
     const headless = startOptions.headless ?? this.options.headless ?? false;

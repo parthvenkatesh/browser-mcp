@@ -9,6 +9,7 @@ export const locatorSchema = z.object({
 
 export const startInputSchema = z.object({
   browser: browserNameSchema.optional().describe("Browser to launch. Overrides BROWSER for this call."),
+  useUserProfile: z.boolean().optional().describe("Reuse the installed browser profile. Defaults to true; set false for an isolated profile."),
 });
 
 export const closeInputSchema = z.object({

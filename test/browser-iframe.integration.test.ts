@@ -62,6 +62,7 @@ describe("browser iframe integration", () => {
     browser = new BrowserManager({
       executablePath: browserExecutable,
       headless: true,
+      useUserProfile: false,
       startupTimeoutMs: 15_000,
       defaultTimeoutMs: 10_000,
       onFrameContextChanged: (reason) => {

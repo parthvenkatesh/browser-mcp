@@ -16,6 +16,7 @@ describe("loadConfig", () => {
       connectionMode: "launch",
       headless: false,
       userDataDir: undefined,
+      useUserProfile: true,
       downloadDir: undefined,
       startupTimeoutMs: DEFAULT_STARTUP_TIMEOUT_MS,
       defaultTimeoutMs: DEFAULT_TIMEOUT_MS,
@@ -33,6 +34,10 @@ describe("loadConfig", () => {
     expect(config.browser).toBe("edge");
     expect(config.executablePath).toBe("/custom/msedge");
     expect(config.headless).toBe(true);
+  });
+
+  it("allows opting out of the user profile", () => {
+    expect(loadConfig({ BROWSER_USE_USER_PROFILE: "false" }).useUserProfile).toBe(false);
   });
 
   it("makes a supplied CDP endpoint take launch precedence", () => {

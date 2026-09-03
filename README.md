@@ -24,8 +24,15 @@ The repository must be public and users need Node.js 20.11 or newer, npm, and
 Git/network access. npm runs the package `prepare` script during installation,
 which builds the TypeScript CLI before it starts. Do not use `--ignore-scripts`.
 
-The server uses an already installed Chromium-based browser through CDP. It
-does not install Chrome, WebDriver, or any browser-driver executable.
+The server uses an already installed Chromium-based browser through CDP. By
+default, a launched browser reuses that browser's local user-data directory so
+existing sessions can be available. To use an isolated temporary profile
+instead, set `BROWSER_USE_USER_PROFILE=false` or pass
+`useUserProfile: false` to `browser_start`. Reusing a profile may fail while
+the normal browser is running because Chromium locks its profile; in that case
+use an existing CDP endpoint or opt into an isolated profile.
+
+It does not install Chrome, WebDriver, or any browser-driver executable.
 
 An MCP client configuration can use either source:
 
@@ -75,7 +82,8 @@ availability is checked by the browser-discovery layer at `browser_start`.
 | `BROWSER_EXECUTABLE` | unset | Explicit local browser executable path. |
 | `BROWSER_CDP_ENDPOINT` | unset | Existing `http(s)` CDP endpoint; takes precedence over launching. |
 | `BROWSER_HEADLESS` | `false` | Launch headed (`false`) or headless (`true`). |
-| `BROWSER_USER_DATA_DIR` | isolated temporary profile | Optional dedicated profile path. |
+| `BROWSER_USER_DATA_DIR` | detected browser profile | Explicit user-data directory override. |
+| `BROWSER_USE_USER_PROFILE` | `true` | Reuse the selected browser's normal user-data directory when launching. |
 | `BROWSER_DOWNLOAD_DIR` | runtime-managed directory | Optional dedicated download path. |
 | `BROWSER_STARTUP_TIMEOUT` | `30000` | Browser/CDP startup timeout in milliseconds. |
 | `BROWSER_DEFAULT_TIMEOUT` | `10000` | Default operation timeout in milliseconds. |
@@ -83,6 +91,18 @@ availability is checked by the browser-discovery layer at `browser_start`.
 
 MCP JSON-RPC owns stdout. Operational logs and startup errors are emitted only
 to stderr, so they cannot corrupt the stdio protocol stream.
+
+When user-profile mode is enabled, the detected directories are:
+
+- macOS Chrome: `~/Library/Application Support/Google/Chrome`
+- macOS Chromium: `~/Library/Application Support/Chromium`
+- macOS Edge: `~/Library/Application Support/Microsoft Edge`
+- Windows Chrome: `%LOCALAPPDATA%\\Google\\Chrome\\User Data`
+- Windows Chromium: `%LOCALAPPDATA%\\Chromium\\User Data`
+- Windows Edge: `%LOCALAPPDATA%\\Microsoft\\Edge\\User Data`
+
+The server only terminates browser processes that it launched and never
+deletes user-owned profile data.
 
 ## Development
 

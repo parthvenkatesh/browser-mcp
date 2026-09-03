@@ -76,8 +76,8 @@ export function createBrowserMcpServer(options: BrowserMcpServerOptions): McpSer
         "Validate and start the requested locally installed Chrome, Chromium, or Edge browser, or connect to the configured CDP endpoint.",
       inputSchema: startInputSchema,
     },
-    guard(options.logger, "browser_start", async ({ browser: requestedBrowser }) => {
-      const session = await browser.start({ browser: requestedBrowser });
+    guard(options.logger, "browser_start", async ({ browser: requestedBrowser, useUserProfile }) => {
+      const session = await browser.start({ browser: requestedBrowser, useUserProfile });
       registry.invalidate("A browser session was started or selected.");
       const status = await browser.status();
       return success(

@@ -29,8 +29,7 @@ export interface LaunchedBrowser {
  * Creates a dedicated profile by default. Supplying a profile path is an
  * explicit advanced opt-in and is never created as a user's normal profile.
  */
-export async function createBrowserProfile(profileDir?: string, downloadDir?: string): Promise<BrowserProfile> {
-  const owned = profileDir === undefined;
+export async function createBrowserProfile(profileDir?: string, downloadDir?: string, owned = profileDir === undefined): Promise<BrowserProfile> {
   const resolvedProfileDir = profileDir ?? (await mkdtemp(join(tmpdir(), "browser-mcp-")));
   await mkdir(resolvedProfileDir, { recursive: true });
   const resolvedDownloadDir = downloadDir ?? join(resolvedProfileDir, "downloads");

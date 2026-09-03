@@ -25,6 +25,7 @@ export interface BrowserConfig {
   readonly connectionMode: ConnectionMode;
   readonly headless: boolean;
   readonly userDataDir: string | undefined;
+  readonly useUserProfile: boolean;
   readonly downloadDir: string | undefined;
   readonly startupTimeoutMs: number;
   readonly defaultTimeoutMs: number;
@@ -170,6 +171,7 @@ export function loadConfig(environment: Environment = process.env): BrowserConfi
     connectionMode: cdpEndpoint === undefined ? "launch" : "existing-cdp",
     headless: parseBoolean(environment, "BROWSER_HEADLESS", false),
     userDataDir: optionalValue(environment, "BROWSER_USER_DATA_DIR"),
+    useUserProfile: parseBoolean(environment, "BROWSER_USE_USER_PROFILE", true),
     downloadDir: optionalValue(environment, "BROWSER_DOWNLOAD_DIR"),
     startupTimeoutMs: parsePositiveInteger(
       environment,

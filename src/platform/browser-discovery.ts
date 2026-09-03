@@ -32,6 +32,29 @@ export interface BrowserDiscoveryOptions {
   readonly homeDir?: string;
 }
 
+export function defaultUserDataDir(browser: BrowserName, platform: NodeJS.Platform = process.platform, environment: NodeJS.ProcessEnv = process.env, homeDirectory = homedir()): string | undefined {
+  if (platform === "darwin") {
+    const paths: Record<BrowserName, string> = {
+      chrome: path.join(homeDirectory, "Library/Application Support/Google/Chrome"),
+      chromium: path.join(homeDirectory, "Library/Application Support/Chromium"),
+      edge: path.join(homeDirectory, "Library/Application Support/Microsoft Edge"),
+    };
+    return paths[browser];
+  }
+
+  if (platform === "win32") {
+    const localAppData = readEnv(environment, "LOCALAPPDATA") ?? path.win32.join(environment.USERPROFILE ?? "C:\\Users\\Default", "AppData", "Local");
+    const paths: Record<BrowserName, string> = {
+      chrome: path.win32.join(localAppData, "Google", "Chrome", "User Data"),
+      chromium: path.win32.join(localAppData, "Chromium", "User Data"),
+      edge: path.win32.join(localAppData, "Microsoft", "Edge", "User Data"),
+    };
+    return paths[browser];
+  }
+
+  return undefined;
+}
+
 const DEFAULT_SEARCH_ORDER: readonly BrowserName[] = BROWSER_NAMES;
 
 /**
